@@ -146,6 +146,8 @@ uv run python -m semantic.consulta taxa_aderencia gbv --cliente "Rede Alfa" --pe
 claude                                          # no diretório do repo: o .mcp.json registra o servidor helppi-metricas
 ```
 
+**Remoto (Gemini, claude.ai):** com `MCP_TRANSPORT=http` o mesmo servidor fala streamable HTTP em `/mcp/<MCP_TOKEN>`. O `Dockerfile` roda o `dbt build` no build da imagem, então o container já sobe com o banco pronto e testado. Publicado atrás de HTTPS, a URL é cadastrada como app personalizado no Gemini, como `httpUrl` no Gemini CLI ou como conector no claude.ai: o mesmo número em qualquer modelo.
+
 Premissa da demo: o agente considera que hoje é 12/10/2026 (`HELPPI_HOJE`), o dia seguinte ao fim dos dados, então "semana passada" é a semana de 05/10.
 
 **GBV não capturado:** a camada semântica tem uma métrica nova, `gbv_nao_capturado` (horas previstas × preço vigente das vagas demandadas não atendidas). No período ela soma **R$ 45,3 mil**, 19% do GBV realizado. Por motivo: sem alocação R$ 20,2 mil, no-show R$ 16,1 mil, desistência sem reposição R$ 9,1 mil. Nesta base, 1 ponto de aderência vale cerca de R$ 500 por semana. Também testei se C02 e C04 pioraram depois do reajuste de 21/09: não pioraram (+3,8 e +3,3 pp, com amostra pequena).

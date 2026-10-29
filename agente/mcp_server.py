@@ -5,11 +5,16 @@ métricas declaradas em semantic/metricas.yml. Assim a resposta do agente é,
 por construção, o mesmo número do mart que alimenta o dashboard.
 
 Rodar:  uv run python -m agente.mcp_server   (stdio; ver .mcp.json)
+Remoto: MCP_TRANSPORT=http MCP_TOKEN=... uv run python -m agente.mcp_server
+        (streamable HTTP em /mcp/<token>; ver Dockerfile)
 """
 
 from __future__ import annotations
 
+import os
+
 from mcp.server.mcpserver import MCPServer
+from mcp.server.transport_security import TransportSecuritySettings
 
 from semantic import engine
 
@@ -98,5 +103,28 @@ def explicar_aderencia(cliente: str | None = None, periodo: str = "ultimo mes") 
     }
 
 
+def servir_http() -> None:
+    """Expõe o servidor por HTTP para clientes remotos (Gemini, claude.ai).
+
+    O token entra no caminho da URL porque nem todo cliente remoto deixa
+    configurar um cabeçalho de autenticação.
+    """
+    token = os.environ.get("MCP_TOKEN")
+    if not token:
+        raise SystemExit("MCP_TOKEN é obrigatório no modo http")
+    servidor.run(
+        "streamable-http",
+        host="0.0.0.0",
+        port=int(os.environ.get("PORT", "8000")),
+        streamable_http_path=f"/mcp/{token}",
+        stateless_http=True,
+        # Atrás do proxy reverso o Host é o domínio público; o token protege a rota.
+        transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False),
+    )
+
+
 if __name__ == "__main__":
-    servidor.run()
+    if os.environ.get("MCP_TRANSPORT") == "http":
+        servir_http()
+    else:
+        servidor.run()
