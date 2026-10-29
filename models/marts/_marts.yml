@@ -1,0 +1,31 @@
+version: 2
+
+models:
+  - name: fct_vagas
+    description: >
+      Fato no grão de vaga. Fonte única para taxa de aderência e GBV.
+      taxa_aderencia = count(conta_como_demanda AND foi_atendida) / count(conta_como_demanda).
+    columns:
+      - name: vaga_id
+        data_tests: [unique, not_null]
+      - name: desfecho
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['atendida', 'cancelada_cliente', 'no_show', 'desistencia_sem_reposicao', 'sem_alocacao']
+      - name: preco_hora
+        description: Preço vigente na data do serviço. Toda vaga precisa ter preço.
+        data_tests: [not_null]
+
+  - name: mart_aderencia_gbv_cliente_semana
+    description: GBV e taxa de aderência por cliente e semana ISO da data do serviço.
+    data_tests:
+      - dbt_utils_free_unique_combination:
+          arguments: {columns: ['cliente_id', 'semana_inicio']}
+    columns:
+      - name: taxa_aderencia
+        data_tests:
+          - not_null
+          - entre_zero_e_um
+      - name: taxa_aderencia_horas
+        data_tests: [entre_zero_e_um]

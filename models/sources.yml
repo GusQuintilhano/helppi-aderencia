@@ -1,0 +1,28 @@
+version: 2
+
+# Em produção estas tabelas viriam da réplica Postgres. Aqui lemos os CSVs
+# como texto puro (all_varchar) para que toda tipagem/limpeza aconteça no staging,
+# do jeito que acontece com dado cru de verdade.
+sources:
+  - name: raw
+    meta:
+      external_location: "read_csv('data/raw/{name}.csv', header = true, all_varchar = true)"
+    tables:
+      - name: clientes
+      - name: pdvs
+      - name: helppers
+      - name: vagas
+      - name: atendimentos
+        columns:
+          - name: atendimento_id
+            # A origem TEM duplicatas (6 ids). Fica como WARN para monitorar a
+            # fonte; o staging deduplica.
+            data_tests:
+              - unique: {config: {severity: warn}}
+          - name: status
+            data_tests:
+              - accepted_values:
+                  arguments:
+                    values: ['realizado', 'no_show', 'desistencia_helpper', 'cancelado_cliente']
+                  config: {severity: warn}
+      - name: precos

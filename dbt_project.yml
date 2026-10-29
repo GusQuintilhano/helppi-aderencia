@@ -1,0 +1,26 @@
+name: helppi
+version: "1.0.0"
+profile: helppi
+
+model-paths: ["models"]
+test-paths: ["tests"]
+analysis-paths: ["analyses"]
+macro-paths: ["macros"]
+
+vars:
+  # Fuso de referência dos timestamps (premissa: a réplica grava em horário local de SP).
+  # Cancelamento com menos de N horas de antecedência do início do dia do serviço é "tardio".
+  cancelamento_tardio_horas: 12
+  # DECISÃO DE NEGÓCIO (default = false): cancelamento tardio conta como demanda?
+  # false -> toda vaga cancelada pelo cliente sai do denominador.
+  # true  -> cancelamentos tardios ficam no denominador como "não atendida".
+  cancelamento_tardio_conta_como_demanda: false
+
+models:
+  helppi:
+    staging:
+      +materialized: view
+    intermediate:
+      +materialized: view
+    marts:
+      +materialized: table

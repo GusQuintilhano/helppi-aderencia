@@ -1,0 +1,22 @@
+pdv_id,cliente_id,cidade
+P001,C01,São Paulo
+P002,C01,São Paulo
+P003,C01,Santo André
+P004,C01,Campinas
+P005,C01,Campinas
+P006,C02,São Paulo
+P007,C02,Osasco
+P008,C02,São Paulo
+P009,C03,Guarulhos
+P010,C03,São Paulo
+P011,C03,São Paulo
+P012,C03,São Paulo
+P013,C03,Campinas
+P014,C04,Osasco
+P015,C04,Osasco
+P016,C04,São Paulo
+P017,C05,Campinas
+P018,C05,Osasco
+P019,C05,Guarulhos
+P020,C05,Campinas
+P021,C05,Guarulhos

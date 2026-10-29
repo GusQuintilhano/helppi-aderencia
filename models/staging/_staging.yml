@@ -1,0 +1,61 @@
+version: 2
+
+models:
+  - name: stg_clientes
+    columns:
+      - name: cliente_id
+        data_tests: [unique, not_null]
+
+  - name: stg_pdvs
+    columns:
+      - name: pdv_id
+        data_tests: [unique, not_null]
+      - name: cliente_id
+        data_tests:
+          - relationships: {arguments: {to: ref('stg_clientes'), field: cliente_id}}
+
+  - name: stg_helppers
+    columns:
+      - name: helpper_id
+        data_tests: [unique, not_null]
+
+  - name: stg_vagas
+    columns:
+      - name: vaga_id
+        data_tests: [unique, not_null]
+      - name: cliente_id
+        data_tests:
+          - not_null
+          - relationships: {arguments: {to: ref('stg_clientes'), field: cliente_id}}
+      - name: pdv_id
+        data_tests:
+          - relationships: {arguments: {to: ref('stg_pdvs'), field: pdv_id}}
+      - name: tipo_servico
+        data_tests:
+          - accepted_values: {arguments: {values: ['picking', 'reposicao']}}
+      - name: horas_previstas
+        data_tests: [not_null]
+
+  - name: stg_atendimentos
+    description: Uma linha por atendimento_id (origem tem duplicatas); status normalizado.
+    columns:
+      - name: atendimento_id
+        data_tests: [unique, not_null]
+      - name: vaga_id
+        data_tests:
+          - relationships: {arguments: {to: ref('stg_vagas'), field: vaga_id}}
+      - name: helpper_id
+        data_tests:
+          - relationships: {arguments: {to: ref('stg_helppers'), field: helpper_id}}
+      - name: status
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['realizado', 'no_show', 'desistencia_helpper', 'cancelado_cliente']
+
+  - name: stg_precos
+    columns:
+      - name: preco_id
+        data_tests: [unique, not_null]
+      - name: preco_hora
+        data_tests: [not_null]

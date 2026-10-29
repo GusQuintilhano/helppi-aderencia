@@ -1,0 +1,15 @@
+preco_id,cliente_id,tipo_servico,preco_hora,vigencia_inicio,vigencia_fim
+1,C01,picking,30.00,2026-01-01,
+2,C01,reposicao,32.00,2026-01-01,
+3,C02,picking,27.50,2026-01-01,2026-09-20
+4,C02,picking,31.00,2026-09-21,
+5,C02,reposicao,29.50,2026-01-01,2026-09-20
+6,C02,reposicao,33.00,2026-09-21,
+7,C03,picking,33.00,2026-01-01,
+8,C03,reposicao,35.00,2026-01-01,
+9,C04,picking,29.00,2026-01-01,2026-09-20
+10,C04,picking,32.50,2026-09-21,
+11,C04,reposicao,31.00,2026-01-01,2026-09-20
+12,C04,reposicao,34.50,2026-09-21,
+13,C05,picking,31.00,2026-01-01,
+14,C05,reposicao,33.00,2026-01-01,

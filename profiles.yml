@@ -1,0 +1,7 @@
+helppi:
+  target: dev
+  outputs:
+    dev:
+      type: duckdb
+      path: helppi.duckdb
+      threads: 4
