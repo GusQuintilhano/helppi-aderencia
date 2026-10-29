@@ -1,0 +1,98 @@
+# Camada semântica: a definição das métricas mora AQUI, uma vez só.
+# O agente de IA (agente/mcp_server.py) e qualquer consumidor leem este arquivo
+# e consultam o fato fct_vagas. tests/test_paridade.py garante que o resultado
+# é idêntico ao mart_aderencia_gbv_cliente_semana que alimenta o dashboard.
+#
+# Em produção isto seria o dbt Semantic Layer (MetricFlow); o formato aqui é
+# deliberadamente parecido: medidas -> métricas -> dimensões.
+
+modelo_base: fct_vagas
+
+medidas:
+  vagas_abertas:
+    sql: count(*)
+  vagas_demandadas:
+    sql: count(*) filter (where conta_como_demanda)
+  vagas_atendidas:
+    sql: count(*) filter (where conta_como_demanda and foi_atendida)
+  horas_demandadas:
+    sql: sum(horas_previstas) filter (where conta_como_demanda)
+  horas_realizadas:
+    sql: sum(horas_realizadas)
+  gbv:
+    sql: sum(gbv)
+  gbv_nao_capturado:
+    sql: sum(horas_previstas * preco_hora) filter (where conta_como_demanda and not foi_atendida)
+
+metricas:
+  taxa_aderencia:
+    rotulo: Taxa de aderência
+    tipo: razao
+    numerador: vagas_atendidas
+    denominador: vagas_demandadas
+    formato: percentual
+    dono: Analytics Engineering
+    definicao: >
+      Vagas demandadas que foram atendidas ÷ vagas demandadas. Vaga demandada =
+      aberta pelo cliente e não cancelada pelo cliente. Atendida = ao menos um
+      atendimento realizado (reposição após desistência conta). Tempo = semana ISO
+      (segunda a domingo) da data do serviço, fuso de São Paulo.
+  taxa_aderencia_horas:
+    rotulo: Taxa de aderência em horas
+    tipo: razao
+    numerador: horas_realizadas
+    denominador: horas_demandadas
+    formato: percentual
+    dono: Analytics Engineering
+    definicao: Horas realizadas ÷ horas previstas das vagas demandadas. Métrica complementar.
+  gbv:
+    rotulo: GBV
+    tipo: simples
+    medida: gbv
+    formato: reais
+    dono: Financeiro
+    definicao: Σ horas realizadas × preço/hora vigente na data do serviço (cliente + tipo de serviço).
+  gbv_nao_capturado:
+    rotulo: GBV não capturado
+    tipo: simples
+    medida: gbv_nao_capturado
+    formato: reais
+    dono: Analytics Engineering
+    definicao: >
+      Estimativa do GBV perdido: horas previstas × preço vigente das vagas
+      demandadas que não foram atendidas.
+  vagas_demandadas:
+    rotulo: Vagas demandadas
+    tipo: simples
+    medida: vagas_demandadas
+    formato: inteiro
+    dono: Analytics Engineering
+    definicao: Vagas abertas pelo cliente e não canceladas pelo cliente.
+  vagas_atendidas:
+    rotulo: Vagas atendidas
+    tipo: simples
+    medida: vagas_atendidas
+    formato: inteiro
+    dono: Analytics Engineering
+    definicao: Vagas demandadas com ao menos um atendimento realizado.
+
+dimensoes:
+  cliente: {sql: cliente_id, descricao: "Código do cliente (C01...). Use resolver_cliente para nomes."}
+  cliente_nome: {sql: cliente_nome, descricao: Nome do cliente}
+  semana: {sql: semana_inicio, descricao: "Segunda-feira da semana ISO da data do serviço"}
+  data_servico: {sql: data_servico, descricao: Data do serviço}
+  dia_semana:
+    sql: "list_extract(['segunda', 'terça', 'quarta', 'quinta', 'sexta', 'sábado', 'domingo'], isodow(data_servico))"
+    descricao: Dia da semana do serviço
+  cidade: {sql: cidade, descricao: Cidade do PDV}
+  pdv: {sql: pdv_id, descricao: Ponto de venda}
+  tipo_servico: {sql: tipo_servico, descricao: picking ou reposicao}
+  desfecho: {sql: desfecho, descricao: "atendida, no_show, desistencia_sem_reposicao, sem_alocacao ou cancelada_cliente"}
+
+# Glossário para o agente traduzir linguagem natural em entidades.
+clientes:
+  C01: [Rede Alfa, Alfa, Rede Alfa Supermercados]
+  C02: [Atacado Beta, Beta]
+  C03: [Farmácias Gama, Farmacias Gama, Gama]
+  C04: [Casa Delta, Delta, Casa Delta Utilidades]
+  C05: [Mercado Épsilon, Mercado Epsilon, Épsilon, Epsilon]

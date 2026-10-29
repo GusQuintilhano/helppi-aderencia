@@ -129,6 +129,27 @@ O que mais puxa a aderência para baixo: **vaga sem alocação** (103 vagas, 44%
 4. **Agente:** acessa por um servidor **MCP** de métricas, com ferramentas como `consultar_metrica(metrica, filtros, periodo)` e `listar_metricas()`, apoiado na mesma camada semântica (o dbt tem servidor MCP próprio). O LLM só resolve a intenção: "cliente X" vira `C01` por um glossário de entidades, "semana passada" vira a semana ISO anterior no fuso de SP. Quem calcula é a camada semântica. A resposta vem com o número, a definição usada e o período, e o agente pode abrir o motivo usando o `desfecho`.
 5. **Garantia de que é o mesmo número:** um conjunto de perguntas de referência roda no CI e compara a resposta do agente com o valor do mart/dashboard. Divergência quebra o build. Permissão por cliente (RLS) vale igual para dashboard, agente e portal.
 
+### Implementado neste repositório
+
+O bônus não ficou só no papel. Esta é uma versão mínima e funcional da arquitetura acima:
+
+| Peça | Arquivo | O que faz |
+|---|---|---|
+| Camada semântica | `semantic/metricas.yml` | Medidas, métricas (com dono e definição), dimensões e glossário de clientes, tudo declarado uma vez |
+| Motor | `semantic/engine.py` | Monta o SQL sobre `fct_vagas` a partir do YAML. Resolve "Rede Alfa" para `C01` e "semana passada" para a semana ISO anterior |
+| Servidor MCP | `agente/mcp_server.py` | Expõe `listar_metricas`, `resolver_cliente`, `consultar_metrica` e `explicar_aderencia` para qualquer cliente MCP |
+| Paridade | `pytests/test_paridade.py` | Compara as 30 células cliente×semana com o mart e roda 4 perguntas de referência. Se as duas definições divergirem, o teste quebra |
+
+```bash
+uv run pytest                                   # paridade agente × mart
+uv run python -m semantic.consulta taxa_aderencia gbv --cliente "Rede Alfa" --periodo "semana passada"
+claude                                          # no diretório do repo: o .mcp.json registra o servidor helppi-metricas
+```
+
+Premissa da demo: o agente considera que hoje é 12/10/2026 (`HELPPI_HOJE`), o dia seguinte ao fim dos dados, então "semana passada" é a semana de 05/10.
+
+**GBV não capturado:** a camada semântica tem uma métrica nova, `gbv_nao_capturado` (horas previstas × preço vigente das vagas demandadas não atendidas). No período ela soma **R$ 45,3 mil**, 19% do GBV realizado. Por motivo: sem alocação R$ 20,2 mil, no-show R$ 16,1 mil, desistência sem reposição R$ 9,1 mil. Nesta base, 1 ponto de aderência vale cerca de R$ 500 por semana. Também testei se C02 e C04 pioraram depois do reajuste de 21/09: não pioraram (+3,8 e +3,3 pp, com amostra pequena).
+
 ## 6. Bônus 2: seis situações, seis entregas
 
 | Situação | Entrega | Por quê |
@@ -147,7 +168,7 @@ O que mais puxa a aderência para baixo: **vaga sem alocação** (103 vagas, 44%
 **Premissas:** timestamps em horário de São Paulo; semana ISO começando na segunda; cancelamento tardio = menos de 12h antes do início do dia do serviço (não há horário de início do turno); a cidade do PDV é a cidade da vaga.
 
 **Com mais tempo:**
-- Declarar a métrica no dbt Semantic Layer (MetricFlow) e montar o servidor MCP do bônus.
+- Migrar `semantic/metricas.yml` para o dbt Semantic Layer (MetricFlow) e gerar o mart a partir dele.
 - Snapshot (SCD2) de vagas e atendimentos para auditar mudanças de status.
 - Freshness nas sources.
 - Testes unitários do dbt para os casos de borda (reposição, cancelamento tardio).
