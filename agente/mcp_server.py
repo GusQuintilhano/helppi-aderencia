@@ -14,9 +14,12 @@ from __future__ import annotations
 import json
 import os
 
+from mcp.server.auth.provider import ProviderTokenVerifier
+from mcp.server.auth.settings import AuthSettings, ClientRegistrationOptions, RevocationOptions
 from mcp.server.mcpserver import MCPServer
 from mcp.server.transport_security import TransportSecuritySettings
 
+from agente.oauth import ProvedorAutoAprovado
 from semantic import engine
 
 servidor = MCPServer(
@@ -146,15 +149,33 @@ def servir_http() -> None:
     if not token:
         raise SystemExit("MCP_TOKEN é obrigatório no modo http")
     caminho = f"/mcp/{token}"
-    app = servidor.streamable_http_app(
+    opcoes = {}
+    url_publica = os.environ.get("PUBLIC_URL", "").rstrip("/")
+    if url_publica:
+        # Com URL pública, o servidor também fala OAuth (descoberta, registro,
+        # authorize, token), que o Gemini exige para apps personalizados.
+        provedor = ProvedorAutoAprovado(token)
+        opcoes = dict(
+            auth=AuthSettings(
+                issuer_url=url_publica,
+                resource_server_url=url_publica + caminho,
+                client_registration_options=ClientRegistrationOptions(enabled=True),
+                revocation_options=RevocationOptions(enabled=True),
+            ),
+            auth_server_provider=provedor,
+            token_verifier=ProviderTokenVerifier(provedor),
+        )
+    app = servidor._lowlevel_server.streamable_http_app(
         streamable_http_path=caminho,
         stateless_http=True,
         # Atrás do proxy reverso o Host é o domínio público; o token protege a rota.
         transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False),
         host="0.0.0.0",
+        **opcoes,
     )
     uvicorn.run(
-        SondagemCompativel(app, caminho),
+        # Com OAuth, a sondagem sem token recebe o 401 padrão, que aponta para a descoberta.
+        app if url_publica else SondagemCompativel(app, caminho),
         host="0.0.0.0",
         port=int(os.environ.get("PORT", "8000")),
         proxy_headers=True,
