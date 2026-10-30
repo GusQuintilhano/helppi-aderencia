@@ -11,6 +11,7 @@ Remoto: MCP_TRANSPORT=http MCP_TOKEN=... uv run python -m agente.mcp_server
 
 from __future__ import annotations
 
+import json
 import os
 
 from mcp.server.mcpserver import MCPServer
@@ -103,23 +104,61 @@ def explicar_aderencia(cliente: str | None = None, periodo: str = "ultimo mes") 
     }
 
 
+class SondagemCompativel:
+    """Responde 200 a HEAD e a GET sem `Accept: text/event-stream` na rota MCP.
+
+    O protocolo permite 405/406 nesses casos, mas o validador de apps
+    personalizados do Gemini sonda a URL assim e recusa o servidor se não
+    receber 200. O tráfego MCP de verdade (POST, e GET de SSE) segue intacto.
+    """
+
+    def __init__(self, app, caminho: str) -> None:
+        self.app = app
+        self.caminho = caminho
+
+    async def __call__(self, scope, receive, send) -> None:
+        if (
+            scope["type"] == "http"
+            and scope["method"] in ("HEAD", "GET")
+            and scope["path"].rstrip("/") == self.caminho
+            and b"text/event-stream" not in dict(scope["headers"]).get(b"accept", b"")
+        ):
+            corpo = json.dumps({"servidor": "helppi-metricas", "protocolo": "mcp streamable-http"}).encode()
+            await send({
+                "type": "http.response.start",
+                "status": 200,
+                "headers": [(b"content-type", b"application/json"), (b"content-length", str(len(corpo)).encode())],
+            })
+            await send({"type": "http.response.body", "body": b"" if scope["method"] == "HEAD" else corpo})
+            return
+        await self.app(scope, receive, send)
+
+
 def servir_http() -> None:
     """Expõe o servidor por HTTP para clientes remotos (Gemini, claude.ai).
 
     O token entra no caminho da URL porque nem todo cliente remoto deixa
     configurar um cabeçalho de autenticação.
     """
+    import uvicorn
+
     token = os.environ.get("MCP_TOKEN")
     if not token:
         raise SystemExit("MCP_TOKEN é obrigatório no modo http")
-    servidor.run(
-        "streamable-http",
-        host="0.0.0.0",
-        port=int(os.environ.get("PORT", "8000")),
-        streamable_http_path=f"/mcp/{token}",
+    caminho = f"/mcp/{token}"
+    app = servidor.streamable_http_app(
+        streamable_http_path=caminho,
         stateless_http=True,
         # Atrás do proxy reverso o Host é o domínio público; o token protege a rota.
         transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False),
+        host="0.0.0.0",
+    )
+    uvicorn.run(
+        SondagemCompativel(app, caminho),
+        host="0.0.0.0",
+        port=int(os.environ.get("PORT", "8000")),
+        proxy_headers=True,
+        forwarded_allow_ips="*",
     )
 
 
