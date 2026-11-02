@@ -34,12 +34,19 @@ servidor = MCPServer(
 )
 
 
+# Schemas compatíveis com o Gemini, que lê um subconjunto do JSON Schema: sem
+# `anyOf` com null (opcional vira "" ou lista vazia) e sem objeto sem propriedades.
+
+
 @servidor.tool()
-def listar_metricas() -> dict:
+def listar_metricas(com_definicoes: bool = True) -> dict:
     """Lista as métricas oficiais, suas definições e as dimensões disponíveis."""
     return {
         "metricas": {
-            nome: {"rotulo": m["rotulo"], "definicao": m["definicao"].strip(), "dono": m["dono"]}
+            nome: (
+                {"rotulo": m["rotulo"], "definicao": m["definicao"].strip(), "dono": m["dono"]}
+                if com_definicoes else m["rotulo"]
+            )
             for nome, m in engine.SPEC["metricas"].items()
         },
         "dimensoes": {nome: d["descricao"] for nome, d in engine.SPEC["dimensoes"].items()},
@@ -60,9 +67,9 @@ def resolver_cliente(nome: str) -> dict:
 def consultar_metrica(
     metricas: list[str],
     periodo: str = "tudo",
-    cliente: str | None = None,
-    cidade: str | None = None,
-    agrupar_por: list[str] | None = None,
+    cliente: str = "",
+    cidade: str = "",
+    agrupar_por: list[str] = [],  # noqa: B006 (o FastMCP valida e copia o valor)
 ) -> dict:
     """Calcula métricas oficiais.
 
@@ -74,7 +81,7 @@ def consultar_metrica(
     """
     filtros = {k: v for k, v in {"cliente": cliente, "cidade": cidade}.items() if v}
     try:
-        resultado = engine.consultar(metricas, filtros, periodo, agrupar_por)
+        resultado = engine.consultar(metricas, filtros, periodo, agrupar_por or None)
     except ValueError as erro:
         # Devolve o motivo ao modelo (métrica, dimensão ou cliente que não existe) em vez de
         # um erro genérico, para ele dizer que não tem o dado em vez de estimar.
@@ -84,7 +91,7 @@ def consultar_metrica(
 
 
 @servidor.tool()
-def explicar_aderencia(cliente: str | None = None, periodo: str = "ultimo mes") -> dict:
+def explicar_aderencia(cliente: str = "", periodo: str = "ultimo mes") -> dict:
     """Explica o que puxou a aderência para baixo: motivos, PDVs e dias da semana piores."""
     filtros = {"cliente": cliente} if cliente else {}
     try:
