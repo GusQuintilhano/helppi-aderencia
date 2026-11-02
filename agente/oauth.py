@@ -55,6 +55,18 @@ class ProvedorAutoAprovado:
             refresh_token=refresh, scope=" ".join(scopes) or None,
         )
 
+    def registrar_cliente_fixo(self, client_id: str, client_secret: str, redirect_uris: list[str]) -> None:
+        """Cliente pré-cadastrado, para quem não usa registro dinâmico (Gemini: ID e chave à mão)."""
+        self.clientes[client_id] = OAuthClientInformationFull(
+            client_id=client_id,
+            client_secret=client_secret,
+            redirect_uris=redirect_uris,
+            token_endpoint_auth_method="client_secret_post",
+            grant_types=["authorization_code", "refresh_token"],
+            response_types=["code"],
+            scope="mcp",
+        )
+
     async def get_client(self, client_id: str) -> OAuthClientInformationFull | None:
         return self.clientes.get(client_id)
 

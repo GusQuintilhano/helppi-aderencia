@@ -11,8 +11,10 @@ Remoto: MCP_TRANSPORT=http MCP_TOKEN=... uv run python -m agente.mcp_server
 
 from __future__ import annotations
 
+import base64
 import json
 import os
+from urllib.parse import parse_qsl, unquote, urlencode
 
 from mcp.server.auth.provider import ProviderTokenVerifier
 from mcp.server.auth.settings import AuthSettings, ClientRegistrationOptions, RevocationOptions
@@ -191,6 +193,42 @@ class MetadadosOAuthPublico:
         await send({"type": "http.response.body", "body": corpo})
 
 
+class TokenBasicParaPost:
+    """No /token, converte autenticação Basic em client_id/client_secret no corpo.
+
+    O cliente fixo é cadastrado como `client_secret_post`; com isso ele funciona
+    seja qual for o método que o cliente usar (o Gemini não documenta qual usa).
+    """
+
+    def __init__(self, app) -> None:
+        self.app = app
+
+    async def __call__(self, scope, receive, send) -> None:
+        cabecalhos = dict(scope.get("headers", []))
+        basic = cabecalhos.get(b"authorization", b"")
+        if scope["type"] != "http" or scope["path"] != "/token" or not basic.lower().startswith(b"basic "):
+            await self.app(scope, receive, send)
+            return
+        corpo = b""
+        while True:
+            mensagem = await receive()
+            corpo += mensagem.get("body", b"")
+            if not mensagem.get("more_body"):
+                break
+        cliente, _, segredo = base64.b64decode(basic[6:]).decode().partition(":")
+        campos = dict(parse_qsl(corpo.decode()))
+        campos.setdefault("client_id", unquote(cliente))
+        campos.setdefault("client_secret", unquote(segredo))
+        novo = urlencode(campos).encode()
+        headers = [(k, v) for k, v in scope["headers"] if k not in (b"authorization", b"content-length")]
+        headers.append((b"content-length", str(len(novo)).encode()))
+
+        async def receber():
+            return {"type": "http.request", "body": novo, "more_body": False}
+
+        await self.app({**scope, "headers": headers}, receber, send)
+
+
 def servir_http() -> None:
     """Expõe o servidor por HTTP para clientes remotos (Gemini, claude.ai).
 
@@ -209,6 +247,12 @@ def servir_http() -> None:
         # Com URL pública, o servidor também fala OAuth (descoberta, registro,
         # authorize, token), que o Gemini exige para apps personalizados.
         provedor = ProvedorAutoAprovado(token)
+        if os.environ.get("OAUTH_CLIENT_ID"):
+            provedor.registrar_cliente_fixo(
+                os.environ["OAUTH_CLIENT_ID"],
+                os.environ["OAUTH_CLIENT_SECRET"],
+                os.environ["OAUTH_REDIRECT_URIS"].split(","),
+            )
         opcoes = dict(
             auth=AuthSettings(
                 issuer_url=url_publica,
@@ -234,7 +278,7 @@ def servir_http() -> None:
     uvicorn.run(
         # Com OAuth, a sondagem sem token recebe o 401 padrão, que aponta para a descoberta.
         # A sondagem HEAD/GET recebe 200 nos dois modos; o POST do MCP continua exigindo o token OAuth.
-        SondagemCompativel(MetadadosOAuthPublico(app) if url_publica else app, caminho),
+        SondagemCompativel(TokenBasicParaPost(MetadadosOAuthPublico(app)) if url_publica else app, caminho),
         host="0.0.0.0",
         port=int(os.environ.get("PORT", "8000")),
         proxy_headers=True,
