@@ -19,12 +19,17 @@ O entregável é a tabela `mart_aderencia_gbv_cliente_semana`.
 
 ```bash
 uv run dbt show --profiles-dir . -s mart_aderencia_gbv_cliente_semana --limit 30
+uv run dbt compile --profiles-dir . -s profiling                   # checagens das tabelas cruas
 uv run dbt compile --profiles-dir . -s ponte_legado_para_oficial   # ponte do número legado para o oficial
 ```
 
+As análises compiladas ficam em `target/compiled/helppi/analyses/` e rodam direto no DuckDB.
+
 ## 1. Diagnóstico: por que as três queries não batem
 
-### Problemas nos dados (afetam as três)
+### Problemas nos dados
+
+Antes de olhar as queries, perfilei as tabelas cruas: `analyses/profiling.sql` tem 9 checagens (chave duplicada, status fora do padrão, campo vazio, vaga com mais de uma alocação, vigências de preço, cancelamento tardio, órfãos e horas acima do previsto). Cada problema encontrado virou teste no dbt. Estão limpos: nenhum atendimento órfão, toda vaga cancelada só tem `cancelado_cliente` e nenhuma hora realizada passa da prevista.
 
 | Problema | Tamanho | Efeito |
 |---|---|---|
@@ -33,6 +38,7 @@ uv run dbt compile --profiles-dir . -s ponte_legado_para_oficial   # ponte do n�
 | `realizado` sem `horas_realizadas` | 4 atendimentos (~R$ 838) | Somem do GBV, ou seja, horas que não são faturadas |
 | Vaga com mais de uma alocação (desistência seguida de reposição) | 52 vagas | Join vaga→atendimento multiplica linhas |
 | Preço com duas vigências (C02 e C04, reajuste em 21/09) | 2 clientes | Join sem vigência multiplica linhas |
+| Cancelamento com menos de 12h de antecedência | 66 de 125 canceladas | Não é erro: é a decisão de negócio da seção 2 |
 
 ### Query por query
 
@@ -61,6 +67,21 @@ uv run dbt compile --profiles-dir . -s ponte_legado_para_oficial   # ponte do n�
 | + normalizar o status | 1.326 | 1.685 | 78,7% |
 | + tirar do denominador as canceladas pelo cliente = **oficial** | 1.326 | 1.560 | **85,0%** |
 
+**Ponte do Financeiro (em horas):** o preço não entra na taxa, mas o join sem vigência duplica as linhas de C02 e C04, que têm a pior aderência em horas (63,8% e 65,0%), e elas passam a pesar o dobro no total.
+
+| Passo | Taxa |
+|---|---|
+| Query 03 do Financeiro | 71,3% |
+| + preço pela vigência | 73,4% |
+| + horas previstas contadas uma vez por vaga | 75,9% |
+| + sem atendimentos duplicados | 75,5% |
+| + sem canceladas pelo cliente = aderência em horas oficial | 81,2% |
+| + medir vagas em vez de horas = **oficial** | **85,0%** |
+
+A decomposição é sequencial: a ordem das correções muda um pouco cada parcela, e o total fecha.
+
+**Comercial:** contar atendimentos em vez de vagas soma 0,4 ponto no total (6 atendimentos a mais). A semana por `criada_em` não mexe no total do período, mas cada semana sai errada, em até 3 pontos: na semana de 28/09 o cliente recebeu 84,8%, e o serviço daquela semana teve 87,8%.
+
 ## 2. Definição da taxa de aderência
 
 > **Taxa de aderência** = vagas demandadas que foram atendidas ÷ vagas demandadas
@@ -76,6 +97,16 @@ uv run dbt compile --profiles-dir . -s ponte_legado_para_oficial   # ponte do n�
 | **Métrica complementar** | Aderência em horas = horas realizadas ÷ horas previstas das vagas demandadas (81,2%) |
 | **GBV** | Σ horas realizadas × preço/hora **vigente na data do serviço** (cliente + tipo de serviço), na semana da data do serviço |
 
+**Por que cada escolha:** o critério é medir se o pedido do cliente foi cumprido, com aderência e GBV no mesmo grão e na mesma semana.
+
+| Escolha | Por quê | O que descartei |
+|---|---|---|
+| Grão: a vaga | É o que o cliente pede: uma pessoa, num PDV, num dia | Atendimento infla com duplicata e reposição; hora mistura aderência com faturamento |
+| Sem canceladas pelo cliente | Se o cliente desistiu, não há demanda para atender | Contar como falha pune a Helppi pela decisão do cliente |
+| Reposição conta como atendida | Para o cliente, o pedido foi cumprido | Desistência como falha mesmo com outra pessoa no lugar |
+| Semana da data do serviço | É quando a demanda acontece, e o mesmo eixo do GBV | Data de criação: cada semana sai errada |
+| Preço vigente na data | O serviço vale o preço do dia em que foi feito | Sem vigência, C02 e C04 entram em dobro |
+
 ### O que foi decisão técnica (tomei e documentei)
 
 - Remover duplicatas de `atendimento_id` e normalizar o status no staging.
@@ -87,7 +118,7 @@ uv run dbt compile --profiles-dir . -s ponte_legado_para_oficial   # ponte do n�
 ### O que eu levaria para o negócio decidir
 
 1. **Cancelamento tardio.** 66 das 125 canceladas foram canceladas com menos de 12h de antecedência. Se cancelamento tardio contar como demanda não atendida, a taxa cai para **81,6%**. O dbt já tem a chave: `cancelamento_tardio_conta_como_demanda` e `cancelamento_tardio_horas`. Isso também afeta a cobrança de taxa de cancelamento.
-2. **Métrica principal em vagas ou em horas?** Recomendo vagas como KPI (responde "atendemos a demanda?") e horas como métrica secundária, ligada ao faturamento. Uma vaga parcial (6h de 8h) é "atendida"?
+2. **Confirmar o KPI em vagas, com horas como métrica complementar.** Vaga é o que o cliente pede, então responde "atendemos a demanda?"; horas conversa com faturamento. Uma vaga parcial (6h de 8h) conta como atendida na aderência, e a hora que faltou aparece na aderência em horas e no GBV.
 3. **Qual corte de semana o cliente enxerga.** O relatório comercial hoje usa a data de criação. Trocar muda o número que o cliente já recebe e precisa ser comunicado.
 4. **Atendimento realizado sem horas:** faturar pelas horas previstas ou cobrar a correção na origem?
 
@@ -108,7 +139,7 @@ sources (CSV cru, tudo como texto)
 
 `mart_aderencia_gbv_cliente_semana`: cliente × semana com vagas abertas, canceladas, canceladas tardias, demandadas e atendidas, `taxa_aderencia`, a abertura das não atendidas (no-show, desistência, sem alocação), vagas com reposição, horas, `taxa_aderencia_horas`, `gbv` e atendimentos sem horas.
 
-| Cliente | Aderência | Aderência em horas | GBV |
+| Cliente | Aderência (KPI) | Em horas (complementar) | GBV |
 |---|---|---|---|
 | C01 Rede Alfa | 88,4% | 84,9% | R$ 59.848 |
 | C02 Atacado Beta | 76,2% | 72,2% | R$ 30.325 |
