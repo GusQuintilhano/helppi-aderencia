@@ -145,6 +145,45 @@ class SondagemCompativel:
         await self.app(scope, receive, send)
 
 
+class MetadadosOAuthPublico:
+    """Anuncia cliente público (PKCE, sem secret) nos metadados do servidor de autorização.
+
+    O SDK aceita `token_endpoint_auth_method: none` no registro e no /token, mas só
+    anuncia `client_secret_*`. Clientes como o Gemini leem os metadados e desistem
+    antes de registrar. Também serve o mesmo documento em openid-configuration.
+    """
+
+    CAMINHOS = ("/.well-known/oauth-authorization-server", "/.well-known/openid-configuration")
+
+    def __init__(self, app) -> None:
+        self.app = app
+
+    async def __call__(self, scope, receive, send) -> None:
+        if scope["type"] != "http" or scope["method"] != "GET" or scope["path"] not in self.CAMINHOS:
+            await self.app(scope, receive, send)
+            return
+        partes, inicio = [], {}
+
+        async def capturar(mensagem) -> None:
+            if mensagem["type"] == "http.response.start":
+                inicio.update(mensagem)
+            else:
+                partes.append(mensagem.get("body", b""))
+
+        await self.app({**scope, "path": self.CAMINHOS[0], "raw_path": self.CAMINHOS[0].encode()}, receive, capturar)
+        metadados = json.loads(b"".join(partes))
+        for chave in ("token_endpoint_auth_methods_supported", "revocation_endpoint_auth_methods_supported"):
+            if "none" not in metadados.get(chave, []):
+                metadados.setdefault(chave, []).insert(0, "none")
+        corpo = json.dumps(metadados).encode()
+        await send({
+            "type": "http.response.start",
+            "status": inicio.get("status", 200),
+            "headers": [(b"content-type", b"application/json"), (b"content-length", str(len(corpo)).encode())],
+        })
+        await send({"type": "http.response.body", "body": corpo})
+
+
 def servir_http() -> None:
     """Expõe o servidor por HTTP para clientes remotos (Gemini, claude.ai).
 
@@ -187,7 +226,7 @@ def servir_http() -> None:
     )
     uvicorn.run(
         # Com OAuth, a sondagem sem token recebe o 401 padrão, que aponta para a descoberta.
-        app if url_publica else SondagemCompativel(app, caminho),
+        MetadadosOAuthPublico(app) if url_publica else SondagemCompativel(app, caminho),
         host="0.0.0.0",
         port=int(os.environ.get("PORT", "8000")),
         proxy_headers=True,
