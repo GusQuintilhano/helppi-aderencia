@@ -226,7 +226,8 @@ def servir_http() -> None:
     )
     uvicorn.run(
         # Com OAuth, a sondagem sem token recebe o 401 padrão, que aponta para a descoberta.
-        MetadadosOAuthPublico(app) if url_publica else SondagemCompativel(app, caminho),
+        # A sondagem HEAD/GET recebe 200 nos dois modos; o POST do MCP continua exigindo o token OAuth.
+        SondagemCompativel(MetadadosOAuthPublico(app) if url_publica else app, caminho),
         host="0.0.0.0",
         port=int(os.environ.get("PORT", "8000")),
         proxy_headers=True,
