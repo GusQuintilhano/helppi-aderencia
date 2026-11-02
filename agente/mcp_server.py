@@ -73,7 +73,12 @@ def consultar_metrica(
     agrupar_por: dimensões, ex. ["semana"], ["cidade"], ["desfecho"].
     """
     filtros = {k: v for k, v in {"cliente": cliente, "cidade": cidade}.items() if v}
-    resultado = engine.consultar(metricas, filtros, periodo, agrupar_por)
+    try:
+        resultado = engine.consultar(metricas, filtros, periodo, agrupar_por)
+    except ValueError as erro:
+        # Devolve o motivo ao modelo (métrica, dimensão ou cliente que não existe) em vez de
+        # um erro genérico, para ele dizer que não tem o dado em vez de estimar.
+        return {"erro": str(erro)}
     resultado.pop("sql")
     return resultado
 
@@ -82,10 +87,13 @@ def consultar_metrica(
 def explicar_aderencia(cliente: str | None = None, periodo: str = "ultimo mes") -> dict:
     """Explica o que puxou a aderência para baixo: motivos, PDVs e dias da semana piores."""
     filtros = {"cliente": cliente} if cliente else {}
-    geral = engine.consultar(
-        ["taxa_aderencia", "vagas_demandadas", "vagas_atendidas", "gbv", "gbv_nao_capturado"],
-        filtros, periodo,
-    )
+    try:
+        geral = engine.consultar(
+            ["taxa_aderencia", "vagas_demandadas", "vagas_atendidas", "gbv", "gbv_nao_capturado"],
+            filtros, periodo,
+        )
+    except ValueError as erro:
+        return {"erro": str(erro)}
     motivos = engine.consultar(["vagas_demandadas", "gbv_nao_capturado"], filtros, periodo, ["desfecho"])
     pdvs = engine.consultar(["taxa_aderencia", "vagas_demandadas"], filtros, periodo, ["pdv", "cidade"])
     dias = engine.consultar(["taxa_aderencia", "vagas_demandadas"], filtros, periodo, ["dia_semana"])

@@ -63,3 +63,20 @@ def test_total_oficial(con):
 def test_cliente_desconhecido_falha_explicitamente(con):
     with pytest.raises(ValueError, match="não reconhecido"):
         engine.consultar(["taxa_aderencia"], {"cliente": "Loja Inexistente"}, conexao=con)
+
+
+@pytest.mark.parametrize("nome, esperado", [
+    ("Rede Alfaa", "C01"),   # erro de digitação ainda resolve
+    ("Zeta", None),          # nome parecido com "Beta" não pode virar a C02
+    ("Omega", None),
+])
+def test_resolver_cliente_nao_chuta(nome, esperado):
+    assert engine.resolver_cliente(nome) == esperado
+
+
+def test_agente_devolve_motivo_quando_metrica_nao_existe():
+    from agente import mcp_server
+
+    resposta = mcp_server.consultar_metrica(metricas=["margem"])
+    assert "Métrica desconhecida: margem" in resposta["erro"]
+    assert "taxa_aderencia" in resposta["erro"]

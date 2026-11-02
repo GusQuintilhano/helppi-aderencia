@@ -46,7 +46,8 @@ def resolver_cliente(nome: str) -> str | None:
             apelidos[_sem_acento(n)] = codigo
     if alvo in apelidos:
         return apelidos[alvo]
-    parecido = get_close_matches(alvo, apelidos, n=1, cutoff=0.75)
+    # Tolera erro de digitação ("Rede Alfaa"), mas não nome diferente: "Zeta" x "Beta" dá 0,75.
+    parecido = get_close_matches(alvo, apelidos, n=1, cutoff=0.85)
     return apelidos[parecido[0]] if parecido else None
 
 
