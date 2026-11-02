@@ -65,7 +65,7 @@ class ProvedorAutoAprovado:
         codigo = secrets.token_urlsafe(32)
         self.codigos[codigo] = AuthorizationCode(
             code=codigo,
-            scopes=params.scopes or [],
+            scopes=params.scopes or ["mcp"],
             expires_at=time.time() + VALIDADE_CODIGO,
             client_id=client.client_id,
             code_challenge=params.code_challenge,

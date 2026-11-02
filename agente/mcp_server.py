@@ -167,7 +167,11 @@ def servir_http() -> None:
             auth=AuthSettings(
                 issuer_url=url_publica,
                 resource_server_url=url_publica + caminho,
-                client_registration_options=ClientRegistrationOptions(enabled=True),
+                # Clientes como o Gemini esperam scopes_supported nos metadados de descoberta.
+                client_registration_options=ClientRegistrationOptions(
+                    enabled=True, valid_scopes=["mcp"], default_scopes=["mcp"],
+                ),
+                required_scopes=["mcp"],
                 revocation_options=RevocationOptions(enabled=True),
             ),
             auth_server_provider=provedor,
