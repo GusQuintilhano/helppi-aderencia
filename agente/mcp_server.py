@@ -208,6 +208,26 @@ class MetadadosOAuthPublico:
         await send({"type": "http.response.body", "body": corpo})
 
 
+class SemStreamGet:
+    """Responde 405 ao GET de streaming na rota MCP.
+
+    Sem sessão, o servidor nunca manda notificações por esse canal, mas o SDK
+    deixa o GET aberto para sempre; o Gemini abre um e fica esperando. O
+    protocolo permite 405 para quem não oferece esse stream.
+    """
+
+    def __init__(self, app, caminho: str) -> None:
+        self.app = app
+        self.caminho = caminho
+
+    async def __call__(self, scope, receive, send) -> None:
+        if scope["type"] == "http" and scope["method"] == "GET" and scope["path"].rstrip("/") == self.caminho:
+            await send({"type": "http.response.start", "status": 405, "headers": [(b"allow", b"POST"), (b"content-length", b"0")]})
+            await send({"type": "http.response.body", "body": b""})
+            return
+        await self.app(scope, receive, send)
+
+
 class TokenBasicParaPost:
     """No /token, converte autenticação Basic em client_id/client_secret no corpo.
 
@@ -294,7 +314,7 @@ def servir_http() -> None:
     uvicorn.run(
         # Com OAuth, a sondagem sem token recebe o 401 padrão, que aponta para a descoberta
         # (igual a um servidor que o Gemini já aceitou); sem OAuth, recebe 200.
-        TokenBasicParaPost(MetadadosOAuthPublico(app)) if url_publica else SondagemCompativel(app, caminho),
+        SemStreamGet(TokenBasicParaPost(MetadadosOAuthPublico(app)), caminho) if url_publica else SondagemCompativel(app, caminho),
         host="0.0.0.0",
         port=int(os.environ.get("PORT", "8000")),
         proxy_headers=True,
