@@ -240,7 +240,9 @@ def servir_http() -> None:
     token = os.environ.get("MCP_TOKEN")
     if not token:
         raise SystemExit("MCP_TOKEN é obrigatório no modo http")
-    caminho = f"/mcp/{token}"
+    # MCP_PATH=/mcp deixa a URL curta, como o Gemini aceita; aí só o OAuth protege a rota
+    # (os dados do case já são públicos no repositório).
+    caminho = os.environ.get("MCP_PATH") or f"/mcp/{token}"
     opcoes = {}
     url_publica = os.environ.get("PUBLIC_URL", "").rstrip("/")
     if url_publica:
@@ -276,9 +278,9 @@ def servir_http() -> None:
         **opcoes,
     )
     uvicorn.run(
-        # Com OAuth, a sondagem sem token recebe o 401 padrão, que aponta para a descoberta.
-        # A sondagem HEAD/GET recebe 200 nos dois modos; o POST do MCP continua exigindo o token OAuth.
-        SondagemCompativel(TokenBasicParaPost(MetadadosOAuthPublico(app)) if url_publica else app, caminho),
+        # Com OAuth, a sondagem sem token recebe o 401 padrão, que aponta para a descoberta
+        # (igual a um servidor que o Gemini já aceitou); sem OAuth, recebe 200.
+        TokenBasicParaPost(MetadadosOAuthPublico(app)) if url_publica else SondagemCompativel(app, caminho),
         host="0.0.0.0",
         port=int(os.environ.get("PORT", "8000")),
         proxy_headers=True,
