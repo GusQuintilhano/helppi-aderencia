@@ -20,6 +20,7 @@ from mcp.server.auth.provider import ProviderTokenVerifier
 from mcp.server.auth.settings import AuthSettings, ClientRegistrationOptions
 from mcp.server.mcpserver import MCPServer
 from mcp.server.transport_security import TransportSecuritySettings
+from mcp.types import ToolAnnotations
 
 from agente.oauth import ProvedorAutoAprovado
 from semantic import engine
@@ -39,8 +40,11 @@ servidor = MCPServer(
 # Schemas compatíveis com o Gemini, que lê um subconjunto do JSON Schema: sem
 # `anyOf` com null (opcional vira "" ou lista vazia) e sem objeto sem propriedades.
 
+# Todas só leem dados; a anotação deixa o cliente dispensar a confirmação a cada chamada.
+SO_LEITURA = ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=False)
 
-@servidor.tool()
+
+@servidor.tool(annotations=SO_LEITURA)
 def listar_metricas(com_definicoes: bool = True) -> dict:
     """Lista as métricas oficiais, suas definições e as dimensões disponíveis."""
     return {
@@ -56,7 +60,7 @@ def listar_metricas(com_definicoes: bool = True) -> dict:
     }
 
 
-@servidor.tool()
+@servidor.tool(annotations=SO_LEITURA)
 def resolver_cliente(nome: str) -> dict:
     """Traduz o nome de um cliente ("Rede Alfa", "farmácias gama") para o código (C01...)."""
     codigo = engine.resolver_cliente(nome)
@@ -65,7 +69,7 @@ def resolver_cliente(nome: str) -> dict:
     return {"encontrado": True, "cliente": codigo, "nome": engine.SPEC["clientes"][codigo][0]}
 
 
-@servidor.tool()
+@servidor.tool(annotations=SO_LEITURA)
 def consultar_metrica(
     metricas: list[str],
     periodo: str = "tudo",
@@ -92,7 +96,7 @@ def consultar_metrica(
     return resultado
 
 
-@servidor.tool()
+@servidor.tool(annotations=SO_LEITURA)
 def explicar_aderencia(cliente: str = "", periodo: str = "ultimo mes") -> dict:
     """Explica o que puxou a aderência para baixo: motivos, PDVs e dias da semana piores."""
     filtros = {"cliente": cliente} if cliente else {}
