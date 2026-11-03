@@ -17,7 +17,7 @@ import os
 from urllib.parse import parse_qsl, unquote, urlencode
 
 from mcp.server.auth.provider import ProviderTokenVerifier
-from mcp.server.auth.settings import AuthSettings, ClientRegistrationOptions, RevocationOptions
+from mcp.server.auth.settings import AuthSettings, ClientRegistrationOptions
 from mcp.server.mcpserver import MCPServer
 from mcp.server.transport_security import TransportSecuritySettings
 
@@ -155,20 +155,25 @@ class SondagemCompativel:
 
 
 class MetadadosOAuthPublico:
-    """Anuncia cliente público (PKCE, sem secret) nos metadados do servidor de autorização.
+    """Reescreve os metadados de descoberta no formato que o Gemini já aceitou.
 
-    O SDK aceita `token_endpoint_auth_method: none` no registro e no /token, mas só
-    anuncia `client_secret_*`. Clientes como o Gemini leem os metadados e desistem
-    antes de registrar. Também serve o mesmo documento em openid-configuration.
+    O validador de apps personalizados do Gemini lê os metadados e desiste antes
+    de registrar o cliente, sem dizer por quê. Um servidor no MCP SDK 1.x foi
+    aceito; a diferença para o 2.x é o formato: `issuer` e `authorization_servers`
+    com barra no fim e sem `scopes_supported`. Aqui os documentos saem iguais aos
+    dele. Também serve o documento do servidor de autorização em openid-configuration.
     """
 
-    CAMINHOS = ("/.well-known/oauth-authorization-server", "/.well-known/openid-configuration")
+    SERVIDOR = ("/.well-known/oauth-authorization-server", "/.well-known/openid-configuration")
+    RECURSO = "/.well-known/oauth-protected-resource"
 
     def __init__(self, app) -> None:
         self.app = app
 
     async def __call__(self, scope, receive, send) -> None:
-        if scope["type"] != "http" or scope["method"] != "GET" or scope["path"] not in self.CAMINHOS:
+        caminho = scope.get("path", "")
+        servidor = caminho in self.SERVIDOR
+        if scope["type"] != "http" or scope["method"] != "GET" or not (servidor or caminho.startswith(self.RECURSO)):
             await self.app(scope, receive, send)
             return
         partes, inicio = [], {}
@@ -179,15 +184,25 @@ class MetadadosOAuthPublico:
             else:
                 partes.append(mensagem.get("body", b""))
 
-        await self.app({**scope, "path": self.CAMINHOS[0], "raw_path": self.CAMINHOS[0].encode()}, receive, capturar)
+        if servidor:
+            caminho = self.SERVIDOR[0]
+        await self.app({**scope, "path": caminho, "raw_path": caminho.encode()}, receive, capturar)
+        if inicio.get("status", 200) != 200:
+            await send(inicio)
+            await send({"type": "http.response.body", "body": b"".join(partes)})
+            return
         metadados = json.loads(b"".join(partes))
-        for chave in ("token_endpoint_auth_methods_supported", "revocation_endpoint_auth_methods_supported"):
-            if "none" not in metadados.get(chave, []):
-                metadados.setdefault(chave, []).insert(0, "none")
-        corpo = json.dumps(metadados).encode()
+        metadados.pop("scopes_supported", None)
+        if servidor:
+            metadados["issuer"] = metadados["issuer"].rstrip("/") + "/"
+            for chave in ("revocation_endpoint", "revocation_endpoint_auth_methods_supported"):
+                metadados.pop(chave, None)
+        else:
+            metadados["authorization_servers"] = [url.rstrip("/") + "/" for url in metadados["authorization_servers"]]
+        corpo = json.dumps(metadados, separators=(",", ":")).encode()
         await send({
             "type": "http.response.start",
-            "status": inicio.get("status", 200),
+            "status": 200,
             "headers": [(b"content-type", b"application/json"), (b"content-length", str(len(corpo)).encode())],
         })
         await send({"type": "http.response.body", "body": corpo})
@@ -264,7 +279,6 @@ def servir_http() -> None:
                     enabled=True, valid_scopes=["mcp"], default_scopes=["mcp"],
                 ),
                 required_scopes=["mcp"],
-                revocation_options=RevocationOptions(enabled=True),
             ),
             auth_server_provider=provedor,
             token_verifier=ProviderTokenVerifier(provedor),
